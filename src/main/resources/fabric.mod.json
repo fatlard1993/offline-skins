@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "offline-skins-justfatlard",
+  "version": "${version}",
+  "name": "Offline Skins",
+  "description": "Gives offline-mode players a skin: a file on the server, or their real one fetched by name",
+  "authors": [
+    "justfatlard"
+  ],
+  "contact": {
+    "sources": "https://github.com/fatlard1993/offline-skins"
+  },
+  "license": "MIT",
+  "icon": "assets/offline-skins-justfatlard/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "justfatlard.offline_skins.Main"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=${loaderVersion}",
+    "fabric-api": "${fabricApiVersion}",
+    "minecraft": "${minecraftDependency}",
+    "java": ">=25",
+    "pandorical": "*"
+  }
+}
