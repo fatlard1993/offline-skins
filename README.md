@@ -30,7 +30,8 @@ itself through Pandorical, and it does so for the Mojang case too: one route, on
 ## Configuration
 
 `config/offline-skins.properties` is written with these defaults and its own explanation the first
-time it is missing.
+time it is missing. The first and last of them are also on the Offline Skins page of the mod
+menu, for ops.
 
 | Key | Default | What it does |
 |-----|---------|--------------|
@@ -41,7 +42,8 @@ time it is missing.
 `skin_cache` takes one of three values:
 
 - **`forever`**: written to disk and never fetched twice, across restarts too. Costs a few KB per
-  player, kept indefinitely.
+  player, kept indefinitely. Also the only setting under which a player's head keeps their face
+  after they leave: every cached skin is handed out at startup, owner present or not.
 - **`session`**: kept in memory only while the player is connected, and dropped when they leave.
   Costs one fetch per join.
 - **`off`**: fetched every time. For testing.
@@ -79,11 +81,9 @@ that reaches a client's renderer with a server-supplied picture.
 and still finds the skins, but a connecting client has no way to receive them and sees the default
 skin, exactly as an offline server does without this mod.
 
-## Installation
+## Development
 
-Install server-side alongside its declared dependencies (see `fabric.mod.json`); connecting clients
-need only Pandorical. Version targets live in `gradle.properties` (Minecraft, loader, Fabric API)
-and `fabric.mod.json` (Java).
+Installing is in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## License
 

@@ -11,7 +11,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Stream;
 
 /**
@@ -66,11 +68,38 @@ public final class SkinSource {
 		try {
 			Path dir = SkinConfig.cacheDir();
 			Files.createDirectories(dir);
-			Files.write(dir.resolve(playerName.toLowerCase(Locale.ROOT)
-				+ (skin.slim() ? ".slim.png" : ".png")), skin.png());
+			// Named as the player is, not lowercased: on an offline server the name's own case is
+			// what their UUID is made from, and this file is read back as a name after a restart.
+			Files.write(dir.resolve(playerName + (skin.slim() ? ".slim.png" : ".png")), skin.png());
 		} catch (IOException e) {
 			Main.LOGGER.warn("Could not cache the skin for {}", playerName, e);
 		}
+	}
+
+	/**
+	 * Every skin in a folder, by the name each file carries, in the file's own case.
+	 *
+	 * <p>For dressing people who are not here: a head left behind belongs to somebody, and the
+	 * folder is the only record of their face until they come back.
+	 */
+	public static Map<String, Skin> allIn(Path dir) {
+		Map<String, Skin> found = new LinkedHashMap<>();
+		if (!Files.isDirectory(dir)) return found;
+
+		try (Stream<Path> files = Files.list(dir)) {
+			for (Path file : files.toList()) {
+				String name = file.getFileName().toString();
+				String lower = name.toLowerCase(Locale.ROOT);
+				boolean slim = lower.endsWith(".slim.png");
+				if (!slim && !lower.endsWith(".png")) continue;
+
+				String player = name.substring(0, name.length() - (slim ? ".slim.png" : ".png").length());
+				found.put(player, new Skin(Files.readAllBytes(file), slim));
+			}
+		} catch (IOException e) {
+			Main.LOGGER.warn("Could not read the skins in {}", dir, e);
+		}
+		return found;
 	}
 
 	private static Skin readFrom(Path dir, String playerName) {
