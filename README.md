@@ -31,7 +31,7 @@ itself through Pandorical, and it does so for the Mojang case too: one route, on
 
 `config/offline-skins.properties` is written with these defaults and its own explanation the first
 time it is missing. The first and last of them are also on the Offline Skins page of the mod
-menu, for ops.
+menu, for ops, as "Fetch skins from Mojang" and "Keep fetched skins".
 
 | Key | Default | What it does |
 |-----|---------|--------------|
@@ -75,7 +75,8 @@ The log records each dressing and where the skin came from: `file`, `cache` or `
 ## Pandorical
 
 Offline Skins delivers the skin as an image through Pandorical's skin API, which is the only route
-that reaches a client's renderer with a server-supplied picture.
+that reaches a client's renderer with a server-supplied picture. Pandorical is required on the
+server: the server will not load this mod without it.
 
 **The Pandorical mod must be installed client-side** to see the skins. Without it the mod still runs
 and still finds the skins, but a connecting client has no way to receive them and sees the default
