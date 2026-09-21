@@ -1,0 +1,18 @@
+{
+	"schemaVersion": 1,
+	"id": "offline-skins-gametest",
+	"version": "1.0.0",
+	"name": "Offline Skins smoke test",
+	"description": "Loads the mod, joins a world, and fails if anything on the way threw.",
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"fabric-client-gametest": [
+			"justfatlard.offline_skins.gametest.SmokeTest"
+		]
+	},
+	"depends": {
+		"offline-skins-justfatlard": "*",
+		"fabric-client-gametest-api-v1": "*"
+	}
+}
