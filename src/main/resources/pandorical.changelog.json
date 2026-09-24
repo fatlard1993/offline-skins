@@ -4,10 +4,13 @@
   ],
   "versions": {
     "1.0.1": [
-      "The two settings on the mods screen are named the way they read, and the mod says plainly that Pandorical is required on the server."
+      "The two settings on the mods screen are named the way they read.",
+      "The mod says plainly that Pandorical is required on the server."
     ],
     "1.0.0": [
-      "An offline server mints its own UUIDs, so nobody carries textures and everybody is Steve. This dresses each player on join: a file in the skins folder wins, otherwise the skin their name really owns is fetched by name."
+      "An offline server mints its own UUIDs, so nobody carries textures and everybody is Steve.",
+      "This dresses each player on join: a file in the skins folder wins.",
+      "Otherwise the skin their name really owns is fetched by name."
     ]
   }
 }
