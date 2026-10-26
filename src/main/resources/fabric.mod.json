@@ -24,5 +24,12 @@
     "minecraft": "${minecraftDependency}",
     "java": ">=25",
     "pandorical": ">=15.0.0"
+  },
+  "custom": {
+    "modmenu": {
+      "links": {
+        "modmenu.donate": "https://github.com/sponsors/fatlard1993"
+      }
+    }
   }
 }
