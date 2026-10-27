@@ -3,6 +3,9 @@
     "Gives offline-mode players a face: a PNG on the server named after them, or the skin their name really owns, fetched from Mojang."
   ],
   "versions": {
+    "1.0.3": [
+      "Mod Menu's Donate button leads to sponsoring the author on GitHub. Nothing in play changes."
+    ],
     "1.0.2": [
       "Release notes rewritten to read plainly; nothing in play changes."
     ],
