@@ -10,19 +10,22 @@ An offline server mints its own UUIDs, so nobody's profile carries textures and 
 
 **Otherwise, the real one.** With no file, the player is looked up by name at Mojang and the skin that account actually owns is fetched and used, slim or wide as the account says. A name with no account keeps the default skin.
 
+**Players can pick their own.** `/skin` opens a picker: every skin the server's folders hold, as faces, searched by typing part of a name and worn with a click. Type an account's name and, with Mojang lookups on, a button wears the skin that account owns. "My own" goes back. The pick is kept across joins, and a player head wears it too, wherever its skin is kept on disk.
+
 **A join never waits.** The file read and both Mojang round trips happen on one background thread. The player is in the world immediately and is dressed a moment later, when the answer comes back. If they have already left by then, nothing happens.
 
 **The picture travels, not a link.** A client resolves a profile's skin through authlib, which checks the texture URL against a list of domains it fetches from Mojang, so a server cannot point that mechanism at its own file no matter how it phrases the answer. This hands the client the PNG itself through Pandorical, and it does so for the Mojang case too: one route, one set of failures.
 
 ## Configuration
 
-`config/offline-skins.properties` is written with these defaults and its own explanation the first time it is missing. The first and last of them are also on the Offline Skins page of the mod menu, for ops, as "Fetch skins from Mojang" and "Keep fetched skins".
+`config/offline-skins.properties` is written with these defaults and its own explanation the first time it is missing. All but `skins_directory` are also on the Offline Skins page of the mod menu, for ops, as "Fetch skins from Mojang", "Keep fetched skins" and "Players pick their skin".
 
 | Key | Default | What it does |
 |-----|---------|--------------|
 | `mojang_fallback` | `true` | When no file matches, look the player up by name and use the skin they own. Set to `false` to use files only. |
 | `skins_directory` | `offline-skins` | Where the PNGs live, relative to the config directory. Created if absent. |
 | `skin_cache` | `forever` | How long a skin fetched from Mojang is remembered. See below. |
+| `player_choice` | `true` | Let players pick their skin with `/skin`. Set to `false` and everyone wears what the folders say; picks already made are kept, unused, for if it is turned back on. |
 
 `skin_cache` takes one of three values:
 
@@ -34,9 +37,23 @@ An unrecognised value logs a warning and behaves as `forever`.
 
 Cached skins are written beside the skins folder, not inside it, in a folder named `<skins_directory>-cache`. A cached copy is not something anybody chose, and mixing the two would fill the admin's folder with faces nobody put there.
 
+## Picking A Skin
+
+| Command | What it does |
+|---------|--------------|
+| `/skin` | Open the picker. Also on the server's action menu, as "Skin". |
+| `/skin wear <name>` | Wear the skin of that name: a file in the folders, or that account's. Works without Pandorical on the client, for the players who have it to see. |
+| `/skin reset` | Go back to your own skin. |
+
+The picker shows the skins folder and, under `skin_cache=forever`, the cache folder: everyone fetched so far, plus every account a player has looked up. A pick is kept only once a skin has been found for it, so a name with no skin anywhere changes nothing. Picks are stored by UUID in `config/offline-skins-choices.properties`.
+
+**A pick wins over a file named after the player.** It is the player's own decision about their own face. An admin who wants the folder to decide turns `player_choice` off.
+
+Each skin shown in the picker is handed to every client once, under a UUID of its own, so its face can be drawn on the tile. Like a skin kept for a player head, that is a few KB per skin sent to each player as they join, for the life of the server.
+
 ## How A Skin Is Found
 
-In this order, stopping at the first answer:
+The name looked up is the one the player picked, or their own when they have not picked one. In this order, stopping at the first answer:
 
 1. **The skins folder.** `<name>.png` or `<name>.slim.png`, matched without regard to case. Read every join.
 2. **This session's memory**, when `skin_cache` is `session` and the player was fetched earlier in this session.

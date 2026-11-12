@@ -43,6 +43,11 @@ public final class SkinConfig {
 		#             costs one fetch per join.
 		#   off     - fetched every time. For testing.
 		skin_cache=forever
+
+		# Let players pick their own skin in-game with /skin: any skin in the folders above, or,
+		# with mojang_fallback on, the skin any account owns, looked up by name. A pick wins over
+		# a file named after the player. Turn this off and everyone wears what the folders say.
+		player_choice=true
 		""";
 
 	/** What to do with a skin once it has been fetched. */
@@ -58,6 +63,7 @@ public final class SkinConfig {
 	private static boolean mojangFallback = true;
 	private static String skinsDirectory = "offline-skins";
 	private static Cache cache = Cache.FOREVER;
+	private static boolean playerChoice = true;
 
 	public static void load() {
 		Path path = FabricLoader.getInstance().getConfigDir().resolve(FILE);
@@ -76,6 +82,7 @@ public final class SkinConfig {
 				properties.getProperty("mojang_fallback", "true"));
 			skinsDirectory = properties.getProperty("skins_directory", "offline-skins");
 			cache = readCache(properties.getProperty("skin_cache", "forever"));
+			playerChoice = Boolean.parseBoolean(properties.getProperty("player_choice", "true"));
 		} catch (IOException e) {
 			Main.LOGGER.warn("Could not read {} - using defaults", FILE, e);
 		}
@@ -103,6 +110,10 @@ public final class SkinConfig {
 
 	public static Cache cache() {
 		return cache;
+	}
+
+	public static boolean playerChoice() {
+		return playerChoice;
 	}
 
 	/**
@@ -144,6 +155,7 @@ public final class SkinConfig {
 	}
 
 	public static void setMojangFallback(boolean on) { mojangFallback = on; store("mojang_fallback", String.valueOf(on)); }
+	public static void setPlayerChoice(boolean on) { playerChoice = on; store("player_choice", String.valueOf(on)); }
 	public static void setCache(Cache value) { cache = value; store("skin_cache", value.name().toLowerCase(java.util.Locale.ROOT)); }
 
 	/** The file's knobs in the mod menu, for ops. */
@@ -159,6 +171,9 @@ public final class SkinConfig {
 		group.choice("cache", "Keep fetched skins", caches, "forever")
 			.backedBy(player -> cache().name().toLowerCase(java.util.Locale.ROOT),
 				(player, v) -> setCache(Cache.valueOf(v.toUpperCase(java.util.Locale.ROOT))));
+		group.toggle("playerChoice", "Players pick their skin", true)
+			.describe("Let players choose a skin in-game with /skin")
+			.backedBy(player -> playerChoice(), (player, v) -> setPlayerChoice(v));
 	}
 
 }

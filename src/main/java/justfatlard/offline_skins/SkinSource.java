@@ -30,6 +30,16 @@ public final class SkinSource {
 	/** A skin and how its arms are drawn. */
 	public record Skin(byte[] png, boolean slim) {}
 
+	/** A skin with the name its file carries, in the file's own case. */
+	public record Named(String name, Skin skin) {}
+
+	/** What Mojang will take as a name, and so all that is ever put into a request URL. */
+	private static final java.util.regex.Pattern ACCOUNT_NAME = java.util.regex.Pattern.compile("[A-Za-z0-9_]{1,16}");
+
+	public static boolean isAccountName(String name) {
+		return name != null && ACCOUNT_NAME.matcher(name).matches();
+	}
+
 	private static final HttpClient HTTP = HttpClient.newBuilder()
 		.connectTimeout(Duration.ofSeconds(5))
 		.followRedirects(HttpClient.Redirect.NORMAL)
@@ -102,6 +112,21 @@ public final class SkinSource {
 		return found;
 	}
 
+	/**
+	 * Every face the folders hold, by lowercased name: the cache folder under {@code forever}, then
+	 * the admin's folder over it, so a file put there wins over a cached fetch of the same person.
+	 */
+	public static Map<String, Named> library() {
+		Map<String, Named> known = new LinkedHashMap<>();
+		if (SkinConfig.cache() == SkinConfig.Cache.FOREVER) {
+			allIn(SkinConfig.cacheDir()).forEach((name, skin) ->
+				known.put(name.toLowerCase(Locale.ROOT), new Named(name, skin)));
+		}
+		allIn(SkinConfig.skinsDir()).forEach((name, skin) ->
+			known.put(name.toLowerCase(Locale.ROOT), new Named(name, skin)));
+		return known;
+	}
+
 	private static Skin readFrom(Path dir, String playerName) {
 		if (!Files.isDirectory(dir)) return null;
 
@@ -128,6 +153,7 @@ public final class SkinSource {
 	 * should not wait on them.
 	 */
 	public static Skin fromMojang(String playerName) {
+		if (!isAccountName(playerName)) return null;
 		try {
 			JsonObject profile = getJson(NAME_TO_PROFILE + playerName);
 			if (profile == null || !profile.has("id")) return null;
