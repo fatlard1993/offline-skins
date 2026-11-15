@@ -3,6 +3,9 @@
     "Gives offline-mode players a face: a PNG on the server named after them, or the skin their name really owns, fetched from Mojang."
   ],
   "versions": {
+    "1.0.5": [
+      "Players pick their own skin with /skin: a face grid to search, or any account by name."
+    ],
     "1.0.4": [
       "Drop changelog notes for changes nothing in the game shows."
     ],
