@@ -10,7 +10,7 @@ An offline server mints its own UUIDs, so nobody's profile carries textures and 
 
 **Otherwise, the real one.** With no file, the player is looked up by name at Mojang and the skin that account actually owns is fetched and used, slim or wide as the account says. A name with no account keeps the default skin.
 
-**Players can pick their own.** `/skin` opens a picker: every skin the server's folders hold, as faces, searched by typing part of a name and worn with a click. Type an account's name and, with Mojang lookups on, a button wears the skin that account owns. Paste a link to any skin PNG and a button wears that: it is kept as the player's upload, and stays in the picker as their own "Upload" tile after they try on others. "My own" goes back to the skin their name owns, whenever they like. The pick is kept across joins, and a player head wears it too, wherever its skin is kept on disk.
+**Players can pick their own.** `/skin` opens a picker: every skin the server's folders hold, as faces, searched by typing part of a name and worn with a click. Type an account's name and, with Mojang lookups on, a button wears the skin that account owns. Paste a link to any skin PNG and a button wears that: it is kept as the player's upload, and stays in the picker as their own "Upload" tile after they try on others. Type a word of three letters or more, and skins whose name holds it are found online too, after the server's own. "My own" goes back to the skin their name owns, whenever they like. The pick is kept across joins, and a player head wears it too, wherever its skin is kept on disk.
 
 **A join never waits.** The file read and both Mojang round trips happen on one background thread. The player is in the world immediately and is dressed a moment later, when the answer comes back. If they have already left by then, nothing happens.
 
@@ -18,7 +18,7 @@ An offline server mints its own UUIDs, so nobody's profile carries textures and 
 
 ## Configuration
 
-`config/offline-skins.properties` is written with these defaults and its own explanation the first time it is missing. All but `skins_directory` are also on the Offline Skins page of the mod menu, for ops, as "Fetch skins from Mojang", "Keep fetched skins", "Players pick their skin" and "Players bring their own skin".
+`config/offline-skins.properties` is written with these defaults and its own explanation the first time it is missing. All but `skins_directory` are also on the Offline Skins page of the mod menu, for ops, as "Fetch skins from Mojang", "Keep fetched skins", "Players pick their skin", "Players bring their own skin" and "Search skins online".
 
 | Key | Default | What it does |
 |-----|---------|--------------|
@@ -26,6 +26,7 @@ An offline server mints its own UUIDs, so nobody's profile carries textures and 
 | `skins_directory` | `offline-skins` | Where the PNGs live, relative to the config directory. Created if absent. |
 | `skin_cache` | `forever` | How long a skin fetched from Mojang is remembered. See below. |
 | `player_choice` | `true` | Let players pick their skin with `/skin`. Set to `false` and everyone wears what the folders say; picks already made are kept, unused, for if it is turned back on. |
+| `online_search` | `true` | Let the picker find skins by a word in their name in MineSkin's public gallery. Needs `player_choice`. Set to `false` and it searches only the folders. |
 | `player_uploads` | `true` | Let players wear any skin PNG by a link, with `/skin link`. Needs `player_choice`. Set to `false` and the server fetches no player's links; uploads already kept stay on disk, unused. |
 
 `skin_cache` takes one of three values:
@@ -49,6 +50,14 @@ Cached skins are written beside the skins folder, not inside it, in a folder nam
 | `/skin reset` | Go back to your own skin. Your upload is kept. |
 
 The picker shows the skins folder and, under `skin_cache=forever`, the cache folder: everyone fetched so far, plus every account a player has looked up. A pick is kept only once a skin has been found for it, so a name with no skin anywhere changes nothing. Picks are stored by UUID in `config/offline-skins-choices.properties`.
+
+## Searching Online
+
+A word typed in the picker is looked up in [MineSkin](https://mineskin.org)'s public gallery once typing pauses, and what it finds is shown after the server's own skins. Only skins somebody named are shown, and only those whose name holds the word: most of the gallery is unnamed, made by plugins. A search usually finds a handful, not hundreds.
+
+A skin is shown once however many times it was uploaded, and not at all when the server already has it: skins are compared by how they look, not by their file. Searches are remembered for ten minutes and their skins for longer, so typing the same word again asks nobody.
+
+A found skin's face is sent to the player searching and nobody else, and goes when the picker closes. It needs Pandorical 15.25 or later on the client; an older one shows the name on a blank tile. A skin worn from a search is kept in `<skins_directory>-online` under its texture hash, so it survives restarts and dresses the player's head.
 
 ## Bringing Your Own Skin
 

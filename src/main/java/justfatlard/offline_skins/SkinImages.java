@@ -36,6 +36,11 @@ public final class SkinImages {
 		boolean legacy = skin.getHeight() == 32;
 		BufferedImage out = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
 		out.createGraphics().drawImage(skin, 0, 0, null);
+		// What sits under a see-through pixel is never meant to be seen, but the opaque layers
+		// below would show it; black instead, so two files that look alike ready alike.
+		for (int y = 0; y < out.getHeight(); y++) {
+			for (int x = 0; x < 64; x++) if ((out.getRGB(x, y) >>> 24) == 0) out.setRGB(x, y, 0);
+		}
 
 		if (legacy) {
 			// The game's own copies, rect by rect: source corner, offset, size.
@@ -86,6 +91,44 @@ public final class SkinImages {
 			}
 		}
 		return true;
+	}
+
+	/** The face as the tab list draws it, hat over head: 64 ARGB values, row by row. */
+	public static int[] face(BufferedImage skin) {
+		int[] face = new int[64];
+		for (int y = 0; y < 8; y++) {
+			for (int x = 0; x < 8; x++) {
+				int head = skin.getRGB(8 + x, 8 + y);
+				int hat = skin.getRGB(40 + x, 8 + y);
+				face[y * 8 + x] = (hat >>> 24) >= 128 ? hat | 0xFF000000 : head;
+			}
+		}
+		return face;
+	}
+
+	/**
+	 * What a readied skin looks like, as a hash: two files that draw the same are the same skin,
+	 * however their bytes differ, so a re-upload that changed only the file's metadata, or the
+	 * colour under a see-through pixel, is a duplicate.
+	 */
+	public static String key(BufferedImage skin) {
+		try {
+			java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+			byte[] pixel = new byte[4];
+			for (int y = 0; y < skin.getHeight(); y++) {
+				for (int x = 0; x < skin.getWidth(); x++) {
+					int argb = skin.getRGB(x, y);
+					pixel[0] = (byte) (argb >>> 24);
+					pixel[1] = (byte) (argb >>> 16);
+					pixel[2] = (byte) (argb >>> 8);
+					pixel[3] = (byte) argb;
+					digest.update(pixel);
+				}
+			}
+			return java.util.HexFormat.of().formatHex(digest.digest());
+		} catch (java.security.NoSuchAlgorithmException e) {
+			throw new IllegalStateException(e);
+		}
 	}
 
 	/** The rect at x, y copied dx, dy along, flipped left to right. */

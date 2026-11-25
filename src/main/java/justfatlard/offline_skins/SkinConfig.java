@@ -54,6 +54,11 @@ public final class SkinConfig {
 		# <skins_directory>-uploads. Needs player_choice on. Turn this off and the server fetches
 		# no player's links; uploads already kept stay on disk, unused.
 		player_uploads=true
+
+		# Let players search skins online from the /skin picker, by a word in their name, from
+		# MineSkin's public gallery. Needs player_choice on. A skin worn from there is kept in
+		# <skins_directory>-online. Turn this off and the picker searches only the folders.
+		online_search=true
 		""";
 
 	/** What to do with a skin once it has been fetched. */
@@ -71,6 +76,7 @@ public final class SkinConfig {
 	private static Cache cache = Cache.FOREVER;
 	private static boolean playerChoice = true;
 	private static boolean playerUploads = true;
+	private static boolean onlineSearch = true;
 
 	public static void load() {
 		Path path = FabricLoader.getInstance().getConfigDir().resolve(FILE);
@@ -91,6 +97,7 @@ public final class SkinConfig {
 			cache = readCache(properties.getProperty("skin_cache", "forever"));
 			playerChoice = Boolean.parseBoolean(properties.getProperty("player_choice", "true"));
 			playerUploads = Boolean.parseBoolean(properties.getProperty("player_uploads", "true"));
+			onlineSearch = Boolean.parseBoolean(properties.getProperty("online_search", "true"));
 		} catch (IOException e) {
 			Main.LOGGER.warn("Could not read {} - using defaults", FILE, e);
 		}
@@ -127,6 +134,16 @@ public final class SkinConfig {
 	/** Whether players may bring their own skin by a link; never without {@link #playerChoice()}. */
 	public static boolean playerUploads() {
 		return playerChoice && playerUploads;
+	}
+
+	/** Whether the picker searches online; never without {@link #playerChoice()}. */
+	public static boolean onlineSearch() {
+		return playerChoice && onlineSearch;
+	}
+
+	/** Where skins worn from an online search are kept, by texture hash. */
+	public static Path onlineDir() {
+		return skinsDir().resolveSibling(skinsDirectory + "-online");
 	}
 
 	/** Where each player's own skin is kept, by UUID, beside the admin's folder for the reason the cache is. */
@@ -175,6 +192,7 @@ public final class SkinConfig {
 	public static void setMojangFallback(boolean on) { mojangFallback = on; store("mojang_fallback", String.valueOf(on)); }
 	public static void setPlayerChoice(boolean on) { playerChoice = on; store("player_choice", String.valueOf(on)); }
 	public static void setPlayerUploads(boolean on) { playerUploads = on; store("player_uploads", String.valueOf(on)); }
+	public static void setOnlineSearch(boolean on) { onlineSearch = on; store("online_search", String.valueOf(on)); }
 	public static void setCache(Cache value) { cache = value; store("skin_cache", value.name().toLowerCase(java.util.Locale.ROOT)); }
 
 	/** The file's knobs in the mod menu, for ops. */
@@ -196,6 +214,9 @@ public final class SkinConfig {
 		group.toggle("playerUploads", "Players bring their own skin", true)
 			.describe("Let players wear any skin PNG by a link, with /skin link")
 			.backedBy(player -> playerUploads, (player, v) -> setPlayerUploads(v));
+		group.toggle("onlineSearch", "Search skins online", true)
+			.describe("Let the /skin picker find skins by name in MineSkin's public gallery")
+			.backedBy(player -> onlineSearch, (player, v) -> setOnlineSearch(v));
 	}
 
 }

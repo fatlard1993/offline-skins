@@ -52,7 +52,7 @@ public class Main implements ModInitializer {
 
 	private record Session(String target, SkinSource.Skin skin) {}
 
-	/** A skin and where it was found: {@code file}, {@code cache}, {@code mojang} or {@code upload}. */
+	/** A skin and where it was found: {@code file}, {@code cache}, {@code mojang}, {@code upload} or {@code online}. */
 	public record Found(SkinSource.Skin skin, String origin) {}
 
 	@Override
@@ -99,7 +99,7 @@ public class Main implements ModInitializer {
 				if (player.hasDisconnected()) return;
 				wear(player.level().getServer(), player, found, false);
 				LOGGER.info("Dressed {} {}from {}{}", name,
-					chosen != null && !SkinUploads.isChoice(chosen) ? "as " + chosen + " " : "",
+					chosen != null ? "as " + Main.shown(chosen) + " " : "",
 					found.origin(), found.skin().slim() ? " (slim)" : "");
 			});
 		});
@@ -133,8 +133,7 @@ public class Main implements ModInitializer {
 				if (player.hasDisconnected()) return;
 				if (found != null) wear(server, player, found, true);
 				else PandoricalApi.skins().clear(server, id);
-				LOGGER.info("{} switched to {}", own, backToOwn ? "their own skin"
-					: SkinUploads.isChoice(target) ? "their uploaded skin" : target + "'s skin");
+				LOGGER.info("{} switched to {}", own, backToOwn ? "their own skin" : shown(target));
 				done.accept(true);
 			});
 		});
@@ -148,6 +147,7 @@ public class Main implements ModInitializer {
 		if (SkinUploads.isChoice(target)) {
 			return SkinConfig.playerUploads() ? valid(SkinUploads.of(wearer), "upload") : null;
 		}
+		if (OnlineSkins.isChoice(target)) return valid(OnlineSkins.skinFor(target), "online");
 
 		// The admin's own folder first, always and uncached: a file put there is a decision,
 		// and it should take effect on the next join rather than waiting out a cache.
@@ -170,6 +170,13 @@ public class Main implements ModInitializer {
 		return found;
 	}
 
+	/** A pick, in words: "Knight's skin", "their upload". */
+	static String shown(String choice) {
+		if (SkinUploads.isChoice(choice)) return "their upload";
+		if (OnlineSkins.isChoice(choice)) return OnlineSkins.nameOf(choice) + " (online)";
+		return choice + "'s skin";
+	}
+
 	private static Found valid(SkinSource.Skin skin, String origin) {
 		return skin == null || skin.png() == null || skin.png().length == 0 ? null : new Found(skin, origin);
 	}
@@ -185,7 +192,7 @@ public class Main implements ModInitializer {
 	 *                  outlast a session one put over it, and come back when they leave
 	 */
 	private static void wear(MinecraftServer server, ServerPlayer player, Found found, boolean replacing) {
-		boolean onDisk = found.origin().equals("file") || found.origin().equals("upload") || SkinConfig.cache() == SkinConfig.Cache.FOREVER;
+		boolean onDisk = found.origin().equals("file") || found.origin().equals("upload") || found.origin().equals("online") || SkinConfig.cache() == SkinConfig.Cache.FOREVER;
 		SkinSource.Skin skin = found.skin();
 
 		if (onDisk) {
@@ -208,6 +215,11 @@ public class Main implements ModInitializer {
 				if (SkinUploads.isChoice(target)) {
 					SkinSource.Skin upload = SkinConfig.playerUploads() ? SkinUploads.of(player) : null;
 					if (upload != null) chosen.put(player, upload);
+					return;
+				}
+				if (OnlineSkins.isChoice(target)) {
+					SkinSource.Skin kept = OnlineSkins.keptFor(target);
+					if (kept != null) chosen.put(player, kept);
 					return;
 				}
 				SkinSource.Named named = known.get(target.toLowerCase(java.util.Locale.ROOT));

@@ -65,22 +65,46 @@ public final class SkinPicker {
 	/** The game's own colour for words on a panel. */
 	private static final String INK = "#FF404040";
 
-	/** A tile: the name shown, the face drawn, and what clicking it wears. */
-	private record Entry(String name, UUID face, String target) {}
+	/** Side of a found skin's face, drawn cell by cell at two pixels a cell. */
+	private static final int CELLS_FACE = 16;
+	/** How long typing must pause before a search goes online. */
+	private static final long SETTLE_MS = 450;
+
+	/**
+	 * A tile: the name shown, its face, what clicking it wears, and the tooltip's words. A face is
+	 * a skin handed out to draw by, or for a skin found online, the face's own pixels.
+	 */
+	private record Entry(String name, UUID face, int[] pixels, String target, String tooltip) {}
+
+	/** The server's skins as tiles, and what each looks like, so a search online skips them. */
+	private record Library(List<Entry> entries, Set<String> looks) {}
 
 	private static final class Open {
 		final String screenId;
-		final List<Entry> library;
+		final Library library;
 		String query;
 		int page;
+		/** Skins found online for {@link #foundFor}; empty until a search has come back. */
+		List<Entry> found = List.of();
+		String foundFor = "";
+		boolean searching;
+		/** Counts keystrokes, so a search started by an older one is dropped when it settles. */
+		volatile int typed;
 
-		Open(String screenId, List<Entry> library, String query, int page) {
+		Open(String screenId, Library library, String query, int page) {
 			this.screenId = screenId;
 			this.library = library;
 			this.query = query;
 			this.page = page;
 		}
 	}
+
+	private static final java.util.concurrent.ScheduledExecutorService SETTLE =
+		java.util.concurrent.Executors.newSingleThreadScheduledExecutor(runnable -> {
+			Thread thread = new Thread(runnable, "offline-skins-settle");
+			thread.setDaemon(true);
+			return thread;
+		});
 
 	private static final Map<UUID, Open> OPEN = new ConcurrentHashMap<>();
 	/** Players with a switch on its way, so a second click is not a second trip to Mojang. */
@@ -217,9 +241,14 @@ public final class SkinPicker {
 		Main.LOOKUP.execute(() -> {
 			Map<String, SkinSource.Named> library = SkinSource.library();
 			SkinSource.Skin upload = SkinConfig.playerUploads() ? SkinUploads.of(id) : null;
+			Set<String> looks = new java.util.HashSet<>();
+			for (SkinSource.Named named : library.values()) {
+				java.awt.image.BufferedImage image = SkinImages.read(named.skin().png());
+				if (image != null) looks.add(SkinImages.key(image));
+			}
 			server.execute(() -> {
 				if (player.hasDisconnected()) return;
-				show(player, handOut(server, library, id, upload), query, page);
+				show(player, new Library(handOut(server, library, id, upload), Set.copyOf(looks)), query, page);
 			});
 		});
 	}
@@ -233,11 +262,13 @@ public final class SkinPicker {
 		List<Entry> entries = new ArrayList<>();
 		for (var known : library.entrySet()) {
 			UUID face = handOut(server, "offline-skins-face:" + known.getKey(), known.getValue().skin());
-			entries.add(new Entry(known.getValue().name(), face, known.getValue().name()));
+			String name = known.getValue().name();
+			entries.add(new Entry(name, face, null, name, "Wear " + name));
 		}
 		entries.sort(java.util.Comparator.comparing(entry -> entry.name().toLowerCase(Locale.ROOT)));
 		if (upload != null) {
-			entries.addFirst(new Entry("Upload", handOut(server, "offline-skins-upload:" + player, upload), SkinUploads.CHOICE));
+			entries.addFirst(new Entry("Upload", handOut(server, "offline-skins-upload:" + player, upload), null,
+				SkinUploads.CHOICE, "Wear your upload"));
 		}
 		return List.copyOf(entries);
 	}
@@ -251,7 +282,7 @@ public final class SkinPicker {
 		return face;
 	}
 
-	private static void show(ServerPlayer player, List<Entry> library, String query, int page) {
+	private static void show(ServerPlayer player, Library library, String query, int page) {
 		ScreenBuilder screen = new ScreenBuilder(TYPE).title("Skin").pauseGame(false).size(WIDTH, HEIGHT);
 		Open open = new Open(screen.screenId(), library, query, page);
 		clampPage(open);
@@ -283,6 +314,13 @@ public final class SkinPicker {
 			screen.component(new ComponentBuilder("face:" + i, ComponentType.PLAYER_FACE)
 				.bounds(x + (TILE_W - FACE) / 2, y + 3, FACE, FACE)
 				.props(state.get("face:" + i)));
+			// Read only: with no ink a click falls through to the tile beneath.
+			screen.component(new ComponentBuilder("cells:" + i, ComponentType.PIXEL_CANVAS)
+				.bounds(x + (TILE_W - CELLS_FACE) / 2, y + 3 + (FACE - CELLS_FACE) / 2, CELLS_FACE, CELLS_FACE)
+				.prop(ComponentType.PROP_CANVAS_COLUMNS, "8")
+				.prop(ComponentType.PROP_CANVAS_ROWS, "8")
+				.prop(ComponentType.PROP_CANVAS_INK, "-1")
+				.props(state.get("cells:" + i)));
 			screen.component(new ComponentBuilder("name:" + i, ComponentType.TEXT)
 				.bounds(x, y + TILE_H - 11, TILE_W, 10)
 				.prop(ComponentType.PROP_ALIGN, "center")
@@ -310,9 +348,12 @@ public final class SkinPicker {
 
 		PandoricalApi.screens().open(player, screen.build());
 		OPEN.put(player.getUUID(), open);
+		// Shown again after a switch, the search still in the box finds what it found before.
+		searchOnline(player, open);
 	}
 
 	private static String placeholder() {
+		if (SkinConfig.onlineSearch()) return SkinConfig.playerUploads() ? "Search skins, or paste a link" : "Search skins";
 		if (SkinConfig.playerUploads()) return SkinConfig.mojangFallback() ? "Search, a name, or a skin link" : "Search, or a skin link";
 		return SkinConfig.mojangFallback() ? "Search, or type an account's name" : "Search the server's skins";
 	}
@@ -325,7 +366,8 @@ public final class SkinPicker {
 		Map<String, Map<String, String>> state = new LinkedHashMap<>();
 
 		state.put("current", Map.of(ComponentType.PROP_TEXT, clip(chosen == null ? "Wearing your own skin"
-			: SkinUploads.isChoice(chosen) ? "Wearing your upload" : "Wearing " + chosen + "'s skin", 22)));
+			: SkinUploads.isChoice(chosen) ? "Wearing your upload"
+			: OnlineSkins.isChoice(chosen) ? "Wearing " + OnlineSkins.nameOf(chosen) : "Wearing " + chosen + "'s skin", 22)));
 		state.put("own", Map.of(ComponentType.PROP_ENABLED, String.valueOf(chosen != null)));
 
 		for (int i = 0; i < PAGE; i++) {
@@ -333,24 +375,27 @@ public final class SkinPicker {
 			Entry entry = index < found.size() ? found.get(index) : null;
 			String shown = String.valueOf(entry != null);
 			boolean worn = entry != null && entry.target().equalsIgnoreCase(chosen);
+			boolean drawn = entry != null && entry.pixels() != null;
 			state.put("tile:" + i, Map.of(ComponentType.PROP_VISIBLE, shown,
-				ComponentType.PROP_TOOLTIP, entry == null ? "" : worn ? "Wearing " + entry.name() : "Wear " + entry.name(),
+				ComponentType.PROP_TOOLTIP, entry == null ? "" : worn ? "Wearing " + entry.name() : entry.tooltip(),
 				ComponentType.PROP_STYLE, worn ? "pressed" : "default"));
-			state.put("face:" + i, Map.of(ComponentType.PROP_VISIBLE, shown,
-				ComponentType.PROP_PLAYER, entry == null ? "" : entry.face().toString()));
+			state.put("face:" + i, Map.of(ComponentType.PROP_VISIBLE, String.valueOf(entry != null && !drawn),
+				ComponentType.PROP_PLAYER, entry == null || drawn ? "" : entry.face().toString()));
+			state.put("cells:" + i, cells(drawn ? entry.pixels() : null));
 			state.put("name:" + i, Map.of(ComponentType.PROP_VISIBLE, shown,
 				ComponentType.PROP_TEXT, entry == null ? "" : clip(entry.name(), 7)));
 		}
 
 		boolean link = SkinConfig.playerUploads() && SkinUploads.looksLikeLink(open.query);
 		state.put("page", Map.of(ComponentType.PROP_TEXT, found.isEmpty()
-			? (link ? "" : open.library.isEmpty() ? "No skins yet" : "Nothing found") : (open.page + 1) + " of " + pages));
+			? (link ? "" : open.searching ? "Searching…" : open.library.entries().isEmpty() && open.query.isBlank() ? "No skins yet" : "Nothing found")
+			: (open.page + 1) + " of " + pages));
 		state.put("prev", Map.of(ComponentType.PROP_ENABLED, String.valueOf(open.page > 0)));
 		state.put("next", Map.of(ComponentType.PROP_ENABLED, String.valueOf(open.page + 1 < pages)));
 
 		String name = open.query.trim();
 		boolean lookup = SkinConfig.mojangFallback() && SkinSource.isAccountName(name)
-			&& open.library.stream().noneMatch(entry -> entry.name().equalsIgnoreCase(name));
+			&& open.library.entries().stream().noneMatch(entry -> entry.name().equalsIgnoreCase(name));
 		state.put("lookup", Map.of(ComponentType.PROP_VISIBLE, String.valueOf(lookup || link),
 			ComponentType.PROP_LABEL, link ? "Wear this link" : lookup ? clip("Wear " + name, 17) : "",
 			ComponentType.PROP_TOOLTIP, link ? "Wear the skin at this link, kept as your upload"
@@ -359,18 +404,76 @@ public final class SkinPicker {
 		return state;
 	}
 
-	/** The skins whose name holds what was typed, those starting with it ahead. */
+	/** A drawn face's props: its colours and its cells, or hidden for none. */
+	private static Map<String, String> cells(int[] pixels) {
+		if (pixels == null) return Map.of(ComponentType.PROP_VISIBLE, "false");
+		Map<Integer, Integer> palette = new LinkedHashMap<>();
+		byte[] cells = new byte[pixels.length];
+		for (int i = 0; i < pixels.length; i++) {
+			Integer index = palette.putIfAbsent(pixels[i], palette.size());
+			cells[i] = (byte) (index == null ? palette.size() - 1 : index);
+		}
+		StringBuilder colours = new StringBuilder();
+		for (int argb : palette.keySet()) {
+			if (!colours.isEmpty()) colours.append(',');
+			colours.append(String.format("#%08X", argb));
+		}
+		return Map.of(ComponentType.PROP_VISIBLE, "true",
+			ComponentType.PROP_CANVAS_PALETTE, colours.toString(),
+			ComponentType.PROP_CANVAS_PIXELS, justfatlard.pandorical.api.PixelCanvas.encode(cells));
+	}
+
+	/**
+	 * Look for what was typed online once typing has paused, and fold what comes back into the
+	 * grid if the box still holds it. A word searched already is answered from memory.
+	 */
+	private static void searchOnline(ServerPlayer player, Open open) {
+		int typed = ++open.typed;
+		String word = open.query.trim().toLowerCase(Locale.ROOT);
+		boolean wanted = SkinConfig.onlineSearch() && word.length() >= OnlineSkins.LEAST_QUERY
+			&& !SkinUploads.looksLikeLink(word) && !word.equals(open.foundFor);
+		open.searching = wanted;
+		if (!wanted) return;
+
+		MinecraftServer server = player.level().getServer();
+		Set<String> looks = open.library.looks();
+		SETTLE.schedule(() -> {
+			if (open.typed != typed) return;
+			OnlineSkins.SEARCH.execute(() -> {
+				if (open.typed != typed) return;
+				List<OnlineSkins.Result> results = OnlineSkins.search(word, looks);
+				server.execute(() -> {
+					if (openFor(player) != open || open.typed != typed) return;
+					List<Entry> found = new ArrayList<>();
+					for (OnlineSkins.Result result : results) {
+						found.add(new Entry(result.name(), null, result.face(), OnlineSkins.choice(result),
+							"Wear " + result.name() + ", found online"));
+					}
+					open.found = List.copyOf(found);
+					open.foundFor = word;
+					open.searching = false;
+					refresh(player, open);
+				});
+			});
+		}, SETTLE_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+	}
+
+	/**
+	 * The skins whose name holds what was typed, those starting with it ahead, and after the
+	 * server's own, those found online for it.
+	 */
 	private static List<Entry> matches(Open open) {
 		String query = open.query.trim().toLowerCase(Locale.ROOT);
-		if (query.isEmpty()) return open.library;
+		if (query.isEmpty()) return open.library.entries();
 		List<Entry> ahead = new ArrayList<>();
 		List<Entry> rest = new ArrayList<>();
-		for (Entry entry : open.library) {
+		for (Entry entry : open.library.entries()) {
 			String name = entry.name().toLowerCase(Locale.ROOT);
 			if (name.startsWith(query)) ahead.add(entry);
 			else if (name.contains(query)) rest.add(entry);
 		}
 		ahead.addAll(rest);
+		if (query.equals(open.foundFor)) ahead.addAll(open.found);
 		return ahead;
 	}
 
@@ -418,6 +521,7 @@ public final class SkinPicker {
 				String text = data.getOrDefault("text", "");
 				open.query = text.length() > MAX_QUERY ? text.substring(0, MAX_QUERY) : text;
 				open.page = 0;
+				searchOnline(player, open);
 				refresh(player, open);
 			}
 			case "prev", "next" -> {
@@ -452,7 +556,7 @@ public final class SkinPicker {
 	private static void wear(ServerPlayer player, Open open, String name) {
 		if (BUSY.contains(player.getUUID())) return;
 		status(player, open, name == null ? "Changing back..."
-			: SkinUploads.isChoice(name) ? "Changing..." : "Finding " + name + "...");
+			: SkinUploads.isChoice(name) || OnlineSkins.isChoice(name) ? "Changing..." : "Finding " + name + "...");
 		switchTo(player, name, ok -> {
 			Open still = openFor(player);
 			if (still == null) return;

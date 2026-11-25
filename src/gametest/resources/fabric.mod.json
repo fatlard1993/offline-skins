@@ -9,7 +9,8 @@
 	"entrypoints": {
 		"fabric-client-gametest": [
 			"justfatlard.offline_skins.gametest.SmokeTest",
-			"justfatlard.offline_skins.gametest.SkinPick"
+			"justfatlard.offline_skins.gametest.SkinPick",
+			"justfatlard.offline_skins.gametest.SkinSearch"
 		]
 	},
 	"depends": {
