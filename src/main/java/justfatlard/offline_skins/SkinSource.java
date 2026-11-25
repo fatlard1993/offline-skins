@@ -104,7 +104,9 @@ public final class SkinSource {
 				if (!slim && !lower.endsWith(".png")) continue;
 
 				String player = name.substring(0, name.length() - (slim ? ".slim.png" : ".png").length());
-				found.put(player, new Skin(Files.readAllBytes(file), slim));
+				byte[] png = SkinImages.ready(Files.readAllBytes(file));
+				if (png == null) Main.LOGGER.warn("Skipping {}: not a 64x64 or 64x32 skin", file);
+				else found.put(player, new Skin(png, slim));
 			}
 		} catch (IOException e) {
 			Main.LOGGER.warn("Could not read the skins in {}", dir, e);
@@ -137,7 +139,9 @@ public final class SkinSource {
 			for (Path file : files.toList()) {
 				String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
 				if (!name.equals(wide) && !name.equals(slim)) continue;
-				return new Skin(Files.readAllBytes(file), name.equals(slim));
+				byte[] png = SkinImages.ready(Files.readAllBytes(file));
+				if (png == null) Main.LOGGER.warn("Ignoring {}: not a 64x64 or 64x32 skin", file);
+				return png == null ? null : new Skin(png, name.equals(slim));
 			}
 		} catch (IOException e) {
 			Main.LOGGER.warn("Could not read a skin file for {}", playerName, e);
@@ -175,7 +179,7 @@ public final class SkinSource {
 				boolean slim = skin.has("metadata")
 					&& "slim".equals(skin.getAsJsonObject("metadata").get("model").getAsString());
 
-				return new Skin(getBytes(skin.get("url").getAsString()), slim);
+				return new Skin(SkinImages.ready(getBytes(skin.get("url").getAsString())), slim);
 			}
 		} catch (Exception e) {
 			Main.LOGGER.warn("Could not fetch a skin for {} from Mojang: {}",

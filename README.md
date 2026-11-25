@@ -60,6 +60,8 @@ The name looked up is the one the player picked, or their own when they have not
 3. **The cache folder**, when `skin_cache` is `forever`.
 4. **Mojang**, when `mojang_fallback` is on: the name is resolved to a profile, the profile's textures are read, and the skin is downloaded. The result is then cached according to `skin_cache`.
 
+Every skin, wherever it came from, is readied the way the game readies one it downloads itself: an old 64x32 skin gets the arm and leg the 64x64 layout needs, mirrored from the ones it has. A file that is neither size is skipped, with a warning in the log.
+
 A file is deliberately ahead of every cache: a cached face is what somebody once had, and a file an admin put there is what they should have now.
 
 The log records each dressing and where the skin came from: `file`, `cache` or `mojang`.
