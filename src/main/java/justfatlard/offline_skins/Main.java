@@ -52,7 +52,7 @@ public class Main implements ModInitializer {
 
 	private record Session(String target, SkinSource.Skin skin) {}
 
-	/** A skin and where it was found: {@code file}, {@code cache} or {@code mojang}. */
+	/** A skin and where it was found: {@code file}, {@code cache}, {@code mojang} or {@code upload}. */
 	public record Found(SkinSource.Skin skin, String origin) {}
 
 	@Override
@@ -98,7 +98,8 @@ public class Main implements ModInitializer {
 			player.level().getServer().execute(() -> {
 				if (player.hasDisconnected()) return;
 				wear(player.level().getServer(), player, found, false);
-				LOGGER.info("Dressed {} {}from {}{}", name, chosen != null ? "as " + chosen + " " : "",
+				LOGGER.info("Dressed {} {}from {}{}", name,
+					chosen != null && !SkinUploads.isChoice(chosen) ? "as " + chosen + " " : "",
 					found.origin(), found.skin().slim() ? " (slim)" : "");
 			});
 		});
@@ -132,7 +133,8 @@ public class Main implements ModInitializer {
 				if (player.hasDisconnected()) return;
 				if (found != null) wear(server, player, found, true);
 				else PandoricalApi.skins().clear(server, id);
-				LOGGER.info("{} switched to {}", own, backToOwn ? "their own skin" : target + "'s skin");
+				LOGGER.info("{} switched to {}", own, backToOwn ? "their own skin"
+					: SkinUploads.isChoice(target) ? "their uploaded skin" : target + "'s skin");
 				done.accept(true);
 			});
 		});
@@ -143,6 +145,10 @@ public class Main implements ModInitializer {
 	 * On the lookup thread only.
 	 */
 	private static Found find(java.util.UUID wearer, String target) {
+		if (SkinUploads.isChoice(target)) {
+			return SkinConfig.playerUploads() ? valid(SkinUploads.of(wearer), "upload") : null;
+		}
+
 		// The admin's own folder first, always and uncached: a file put there is a decision,
 		// and it should take effect on the next join rather than waiting out a cache.
 		SkinSource.Skin skin = SkinSource.fromFile(target);
@@ -179,7 +185,7 @@ public class Main implements ModInitializer {
 	 *                  outlast a session one put over it, and come back when they leave
 	 */
 	private static void wear(MinecraftServer server, ServerPlayer player, Found found, boolean replacing) {
-		boolean onDisk = found.origin().equals("file") || SkinConfig.cache() == SkinConfig.Cache.FOREVER;
+		boolean onDisk = found.origin().equals("file") || found.origin().equals("upload") || SkinConfig.cache() == SkinConfig.Cache.FOREVER;
 		SkinSource.Skin skin = found.skin();
 
 		if (onDisk) {
@@ -199,10 +205,15 @@ public class Main implements ModInitializer {
 			// what the folders hold: a choice kept nowhere on disk waits for its owner to join.
 			java.util.Map<java.util.UUID, SkinSource.Skin> chosen = new java.util.LinkedHashMap<>();
 			SkinChoices.all().forEach((player, target) -> {
+				if (SkinUploads.isChoice(target)) {
+					SkinSource.Skin upload = SkinConfig.playerUploads() ? SkinUploads.of(player) : null;
+					if (upload != null) chosen.put(player, upload);
+					return;
+				}
 				SkinSource.Named named = known.get(target.toLowerCase(java.util.Locale.ROOT));
 				if (named != null) chosen.put(player, named.skin());
 			});
-			if (known.isEmpty()) return;
+			if (known.isEmpty() && chosen.isEmpty()) return;
 
 			server.execute(() -> {
 				for (SkinSource.Named named : known.values()) {

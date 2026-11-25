@@ -48,6 +48,12 @@ public final class SkinConfig {
 		# with mojang_fallback on, the skin any account owns, looked up by name. A pick wins over
 		# a file named after the player. Turn this off and everyone wears what the folders say.
 		player_choice=true
+
+		# Let players bring a skin of their own with /skin link <url>: a link to any 64x64 skin
+		# PNG, fetched by the server and kept for that player alone, beside the skins folder in
+		# <skins_directory>-uploads. Needs player_choice on. Turn this off and the server fetches
+		# no player's links; uploads already kept stay on disk, unused.
+		player_uploads=true
 		""";
 
 	/** What to do with a skin once it has been fetched. */
@@ -64,6 +70,7 @@ public final class SkinConfig {
 	private static String skinsDirectory = "offline-skins";
 	private static Cache cache = Cache.FOREVER;
 	private static boolean playerChoice = true;
+	private static boolean playerUploads = true;
 
 	public static void load() {
 		Path path = FabricLoader.getInstance().getConfigDir().resolve(FILE);
@@ -83,6 +90,7 @@ public final class SkinConfig {
 			skinsDirectory = properties.getProperty("skins_directory", "offline-skins");
 			cache = readCache(properties.getProperty("skin_cache", "forever"));
 			playerChoice = Boolean.parseBoolean(properties.getProperty("player_choice", "true"));
+			playerUploads = Boolean.parseBoolean(properties.getProperty("player_uploads", "true"));
 		} catch (IOException e) {
 			Main.LOGGER.warn("Could not read {} - using defaults", FILE, e);
 		}
@@ -114,6 +122,16 @@ public final class SkinConfig {
 
 	public static boolean playerChoice() {
 		return playerChoice;
+	}
+
+	/** Whether players may bring their own skin by a link; never without {@link #playerChoice()}. */
+	public static boolean playerUploads() {
+		return playerChoice && playerUploads;
+	}
+
+	/** Where each player's own skin is kept, by UUID, beside the admin's folder for the reason the cache is. */
+	public static Path uploadsDir() {
+		return skinsDir().resolveSibling(skinsDirectory + "-uploads");
 	}
 
 	/**
@@ -156,6 +174,7 @@ public final class SkinConfig {
 
 	public static void setMojangFallback(boolean on) { mojangFallback = on; store("mojang_fallback", String.valueOf(on)); }
 	public static void setPlayerChoice(boolean on) { playerChoice = on; store("player_choice", String.valueOf(on)); }
+	public static void setPlayerUploads(boolean on) { playerUploads = on; store("player_uploads", String.valueOf(on)); }
 	public static void setCache(Cache value) { cache = value; store("skin_cache", value.name().toLowerCase(java.util.Locale.ROOT)); }
 
 	/** The file's knobs in the mod menu, for ops. */
@@ -174,6 +193,9 @@ public final class SkinConfig {
 		group.toggle("playerChoice", "Players pick their skin", true)
 			.describe("Let players choose a skin in-game with /skin")
 			.backedBy(player -> playerChoice(), (player, v) -> setPlayerChoice(v));
+		group.toggle("playerUploads", "Players bring their own skin", true)
+			.describe("Let players wear any skin PNG by a link, with /skin link")
+			.backedBy(player -> playerUploads, (player, v) -> setPlayerUploads(v));
 	}
 
 }

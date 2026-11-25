@@ -75,6 +75,19 @@ public final class SkinImages {
 		return image == null || !isSkinSize(image) ? null : png(ready(image));
 	}
 
+	/**
+	 * Whether a readied skin is the slim model: the outer column of each slim arm is left empty,
+	 * as at x 54 to 55 of the right arm's front, which a wide skin always paints.
+	 */
+	public static boolean isSlim(BufferedImage skin) {
+		for (int y = 20; y < 32; y++) {
+			for (int x = 54; x < 56; x++) {
+				if ((skin.getRGB(x, y) >>> 24) != 0) return false;
+			}
+		}
+		return true;
+	}
+
 	/** The rect at x, y copied dx, dy along, flipped left to right. */
 	private static void mirror(BufferedImage image, int x, int y, int dx, int dy, int w, int h) {
 		for (int row = 0; row < h; row++) {

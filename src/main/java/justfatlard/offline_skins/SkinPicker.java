@@ -60,11 +60,13 @@ public final class SkinPicker {
 	private static final int PAGER_Y = GRID_Y + ROWS * (TILE_H + GAP);
 	private static final int HEIGHT = PAGER_Y + BUTTON + PAD;
 	private static final int OWN_W = 60;
-	private static final int MAX_QUERY = 32;
+	/** Room for a pasted link, which is far longer than any name. */
+	private static final int MAX_QUERY = 512;
 	/** The game's own colour for words on a panel. */
 	private static final String INK = "#FF404040";
 
-	private record Entry(String name, UUID face) {}
+	/** A tile: the name shown, the face drawn, and what clicking it wears. */
+	private record Entry(String name, UUID face, String target) {}
 
 	private static final class Open {
 		final String screenId;
@@ -95,6 +97,8 @@ public final class SkinPicker {
 		PandoricalApi.actionMenus().suggestButton(ActionMenuApi.Button.runs("minecraft:player_head", "Skin", "skin"));
 		PandoricalApi.commandHelp().describe("/skin", "Pick the skin you wear, from the server's or any account's.");
 		PandoricalApi.commandHelp().describe("/skin wear <name>", "Wear the skin of that name: a file on the server, or the account's.");
+		PandoricalApi.commandHelp().describe("/skin link <url>", "Wear the skin PNG at that link, kept as your upload.");
+		PandoricalApi.commandHelp().describe("/skin upload", "Wear your upload again.");
 		PandoricalApi.commandHelp().describe("/skin reset", "Go back to your own skin.");
 	}
 
@@ -118,6 +122,22 @@ public final class SkinPicker {
 							? "You are wearing " + name + "'s skin" : "No skin found for " + name));
 						return 1;
 					})))
+			.then(Commands.literal("link")
+				.then(Commands.argument("url", StringArgumentType.greedyString())
+					.executes(context -> {
+						ServerPlayer player = context.getSource().getPlayerOrException();
+						if (uploadsAllowed(player)) wearLink(player, StringArgumentType.getString(context, "url"),
+							refused -> say(player, refused != null ? refused
+								: "You are wearing your upload. /skin reset goes back to your own"));
+						return 1;
+					})))
+			.then(Commands.literal("upload")
+				.executes(context -> {
+					ServerPlayer player = context.getSource().getPlayerOrException();
+					if (uploadsAllowed(player)) switchTo(player, SkinUploads.CHOICE, ok -> say(player, ok
+						? "You are wearing your upload" : "You have no upload yet. /skin link <url> brings one"));
+					return 1;
+				}))
 			.then(Commands.literal("reset")
 				.executes(context -> {
 					ServerPlayer player = context.getSource().getPlayerOrException();
@@ -130,6 +150,44 @@ public final class SkinPicker {
 		if (SkinConfig.playerChoice()) return true;
 		say(player, "Picking a skin is turned off on this server");
 		return false;
+	}
+
+	private static boolean uploadsAllowed(ServerPlayer player) {
+		if (!allowed(player)) return false;
+		if (SkinConfig.playerUploads()) return true;
+		say(player, "Bringing your own skin is turned off on this server");
+		return false;
+	}
+
+	/**
+	 * Fetch the skin at a link, keep it as this player's upload, and wear it.
+	 *
+	 * @param done told on the server thread: null once it is worn, or why not, in words for the player
+	 */
+	private static void wearLink(ServerPlayer player, String link, java.util.function.Consumer<String> done) {
+		UUID id = player.getUUID();
+		if (!BUSY.add(id)) return;
+		MinecraftServer server = player.level().getServer();
+		Main.LOOKUP.execute(() -> {
+			String refused = null;
+			try {
+				SkinUploads.keep(id, SkinUploads.fetch(link));
+			} catch (SkinUploads.Refused e) {
+				refused = e.getMessage();
+			} catch (java.io.IOException e) {
+				Main.LOGGER.warn("Could not keep the uploaded skin of {}", id, e);
+				refused = "The server could not keep that skin";
+			}
+			String why = refused;
+			server.execute(() -> {
+				BUSY.remove(id);
+				if (why != null) {
+					done.accept(why);
+					return;
+				}
+				switchTo(player, SkinUploads.CHOICE, ok -> done.accept(ok ? null : "That skin could not be worn"));
+			});
+		});
 	}
 
 	private static void say(ServerPlayer player, String words) {
@@ -155,29 +213,42 @@ public final class SkinPicker {
 			return;
 		}
 		MinecraftServer server = player.level().getServer();
+		UUID id = player.getUUID();
 		Main.LOOKUP.execute(() -> {
 			Map<String, SkinSource.Named> library = SkinSource.library();
+			SkinSource.Skin upload = SkinConfig.playerUploads() ? SkinUploads.of(id) : null;
 			server.execute(() -> {
 				if (player.hasDisconnected()) return;
-				show(player, handOut(server, library), query, page);
+				show(player, handOut(server, library, id, upload), query, page);
 			});
 		});
 	}
 
-	/** Every skin as a tile, its face handed out to draw by where that has not been done already. */
-	private static List<Entry> handOut(MinecraftServer server, Map<String, SkinSource.Named> library) {
+	/**
+	 * Every skin as a tile, its face handed out to draw by where that has not been done already;
+	 * the player's own upload first, seen by them alone.
+	 */
+	private static List<Entry> handOut(MinecraftServer server, Map<String, SkinSource.Named> library,
+			UUID player, SkinSource.Skin upload) {
 		List<Entry> entries = new ArrayList<>();
 		for (var known : library.entrySet()) {
-			SkinSource.Skin skin = known.getValue().skin();
-			UUID face = UUID.nameUUIDFromBytes(("offline-skins-face:" + known.getKey()).getBytes(StandardCharsets.UTF_8));
-			int hash = Arrays.hashCode(skin.png()) * 31 + (skin.slim() ? 1 : 0);
-			if (!Integer.valueOf(hash).equals(FACES.put(face, hash))) {
-				PandoricalApi.skins().set(server, face, skin.png(), skin.slim());
-			}
-			entries.add(new Entry(known.getValue().name(), face));
+			UUID face = handOut(server, "offline-skins-face:" + known.getKey(), known.getValue().skin());
+			entries.add(new Entry(known.getValue().name(), face, known.getValue().name()));
 		}
 		entries.sort(java.util.Comparator.comparing(entry -> entry.name().toLowerCase(Locale.ROOT)));
+		if (upload != null) {
+			entries.addFirst(new Entry("Upload", handOut(server, "offline-skins-upload:" + player, upload), SkinUploads.CHOICE));
+		}
 		return List.copyOf(entries);
+	}
+
+	private static UUID handOut(MinecraftServer server, String key, SkinSource.Skin skin) {
+		UUID face = UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8));
+		int hash = Arrays.hashCode(skin.png()) * 31 + (skin.slim() ? 1 : 0);
+		if (!Integer.valueOf(hash).equals(FACES.put(face, hash))) {
+			PandoricalApi.skins().set(server, face, skin.png(), skin.slim());
+		}
+		return face;
 	}
 
 	private static void show(ServerPlayer player, List<Entry> library, String query, int page) {
@@ -201,8 +272,7 @@ public final class SkinPicker {
 		screen.component(new ComponentBuilder("search", ComponentType.TEXT_INPUT)
 			.bounds(PAD, TOP + 24, INNER, 16)
 			.prop(ComponentType.PROP_VALUE, query)
-			.prop(ComponentType.PROP_PLACEHOLDER, SkinConfig.mojangFallback()
-				? "Search, or type an account's name" : "Search the server's skins")
+			.prop(ComponentType.PROP_PLACEHOLDER, placeholder())
 			.prop(ComponentType.PROP_MAX_LENGTH, String.valueOf(MAX_QUERY))
 			.prop(ComponentType.PROP_FOCUSED, "true"));
 
@@ -234,11 +304,17 @@ public final class SkinPicker {
 			.bounds(lookupX, PAGER_Y + 6, WIDTH - PAD - lookupX, 10)
 			.prop(ComponentType.PROP_ALIGN, "right")
 			.prop(ComponentType.PROP_COLOR, "#FF707070")
-			.prop(ComponentType.PROP_TEXT, SkinConfig.mojangFallback() ? "type any account name" : "type to search")
+			.prop(ComponentType.PROP_TEXT, SkinConfig.playerUploads() ? "or paste a skin link"
+				: SkinConfig.mojangFallback() ? "type any account name" : "type to search")
 			.props(state.get("hint")));
 
 		PandoricalApi.screens().open(player, screen.build());
 		OPEN.put(player.getUUID(), open);
+	}
+
+	private static String placeholder() {
+		if (SkinConfig.playerUploads()) return SkinConfig.mojangFallback() ? "Search, a name, or a skin link" : "Search, or a skin link";
+		return SkinConfig.mojangFallback() ? "Search, or type an account's name" : "Search the server's skins";
 	}
 
 	/** Each part that changes with the search, the page or the skin worn, by component. */
@@ -248,15 +324,15 @@ public final class SkinPicker {
 		String chosen = SkinChoices.of(player.getUUID());
 		Map<String, Map<String, String>> state = new LinkedHashMap<>();
 
-		state.put("current", Map.of(ComponentType.PROP_TEXT,
-			clip(chosen == null ? "Wearing your own skin" : "Wearing " + chosen + "'s skin", 22)));
+		state.put("current", Map.of(ComponentType.PROP_TEXT, clip(chosen == null ? "Wearing your own skin"
+			: SkinUploads.isChoice(chosen) ? "Wearing your upload" : "Wearing " + chosen + "'s skin", 22)));
 		state.put("own", Map.of(ComponentType.PROP_ENABLED, String.valueOf(chosen != null)));
 
 		for (int i = 0; i < PAGE; i++) {
 			int index = open.page * PAGE + i;
 			Entry entry = index < found.size() ? found.get(index) : null;
 			String shown = String.valueOf(entry != null);
-			boolean worn = entry != null && entry.name().equalsIgnoreCase(chosen);
+			boolean worn = entry != null && entry.target().equalsIgnoreCase(chosen);
 			state.put("tile:" + i, Map.of(ComponentType.PROP_VISIBLE, shown,
 				ComponentType.PROP_TOOLTIP, entry == null ? "" : worn ? "Wearing " + entry.name() : "Wear " + entry.name(),
 				ComponentType.PROP_STYLE, worn ? "pressed" : "default"));
@@ -266,18 +342,20 @@ public final class SkinPicker {
 				ComponentType.PROP_TEXT, entry == null ? "" : clip(entry.name(), 7)));
 		}
 
+		boolean link = SkinConfig.playerUploads() && SkinUploads.looksLikeLink(open.query);
 		state.put("page", Map.of(ComponentType.PROP_TEXT, found.isEmpty()
-			? (open.library.isEmpty() ? "No skins yet" : "Nothing found") : (open.page + 1) + " of " + pages));
+			? (link ? "" : open.library.isEmpty() ? "No skins yet" : "Nothing found") : (open.page + 1) + " of " + pages));
 		state.put("prev", Map.of(ComponentType.PROP_ENABLED, String.valueOf(open.page > 0)));
 		state.put("next", Map.of(ComponentType.PROP_ENABLED, String.valueOf(open.page + 1 < pages)));
 
 		String name = open.query.trim();
 		boolean lookup = SkinConfig.mojangFallback() && SkinSource.isAccountName(name)
 			&& open.library.stream().noneMatch(entry -> entry.name().equalsIgnoreCase(name));
-		state.put("lookup", Map.of(ComponentType.PROP_VISIBLE, String.valueOf(lookup),
-			ComponentType.PROP_LABEL, lookup ? clip("Wear " + name, 17) : "",
-			ComponentType.PROP_TOOLTIP, lookup ? "Wear the skin the account " + name + " owns" : ""));
-		state.put("hint", Map.of(ComponentType.PROP_VISIBLE, String.valueOf(!lookup && open.query.isBlank())));
+		state.put("lookup", Map.of(ComponentType.PROP_VISIBLE, String.valueOf(lookup || link),
+			ComponentType.PROP_LABEL, link ? "Wear this link" : lookup ? clip("Wear " + name, 17) : "",
+			ComponentType.PROP_TOOLTIP, link ? "Wear the skin at this link, kept as your upload"
+				: lookup ? "Wear the skin the account " + name + " owns" : ""));
+		state.put("hint", Map.of(ComponentType.PROP_VISIBLE, String.valueOf(!lookup && !link && open.query.isBlank())));
 		return state;
 	}
 
@@ -350,7 +428,8 @@ public final class SkinPicker {
 			case "own" -> wear(player, open, null);
 			case "lookup" -> {
 				String name = open.query.trim();
-				if (SkinSource.isAccountName(name)) wear(player, open, name);
+				if (SkinConfig.playerUploads() && SkinUploads.looksLikeLink(name)) wearLink(player, open, name);
+				else if (SkinSource.isAccountName(name)) wear(player, open, name);
 			}
 			default -> {
 				if (!id.startsWith("tile:")) return;
@@ -361,7 +440,7 @@ public final class SkinPicker {
 					return;
 				}
 				List<Entry> found = matches(open);
-				if (index >= 0 && index < found.size()) wear(player, open, found.get(index).name());
+				if (index >= 0 && index < found.size()) wear(player, open, found.get(index).target());
 			}
 		}
 	}
@@ -372,12 +451,27 @@ public final class SkinPicker {
 	 */
 	private static void wear(ServerPlayer player, Open open, String name) {
 		if (BUSY.contains(player.getUUID())) return;
-		status(player, open, name == null ? "Changing back..." : "Finding " + name + "...");
+		status(player, open, name == null ? "Changing back..."
+			: SkinUploads.isChoice(name) ? "Changing..." : "Finding " + name + "...");
 		switchTo(player, name, ok -> {
 			Open still = openFor(player);
 			if (still == null) return;
 			if (ok) open(player, still.query, still.page);
 			else status(player, still, "No skin found for " + name);
+		});
+	}
+
+	/** Fetch the link, then show the screen again with the upload's tile in it and the search cleared. */
+	private static void wearLink(ServerPlayer player, Open open, String link) {
+		if (BUSY.contains(player.getUUID())) return;
+		status(player, open, "Fetching the skin...");
+		wearLink(player, link, refused -> {
+			Open still = openFor(player);
+			// The reason is often longer than the status line holds, so the whole of it goes to chat.
+			if (refused != null) say(player, refused);
+			if (still == null) return;
+			if (refused == null) open(player, "", 0);
+			else status(player, still, "That link didn't work");
 		});
 	}
 
