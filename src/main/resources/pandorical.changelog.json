@@ -3,6 +3,11 @@
     "Gives offline-mode players a face: a PNG on the server named after them, or the skin their name really owns, fetched from Mojang."
   ],
   "versions": {
+    "1.0.6": [
+      "Old 64x32 skins are converted to 64x64, as the game converts them.",
+      "Players bring a skin of their own by a link, kept as their upload beside their own.",
+      "The skin picker searches MineSkin's gallery by name, after the server's own skins."
+    ],
     "1.0.5": [
       "Players pick their own skin with /skin: a face grid to search, or any account by name."
     ],
